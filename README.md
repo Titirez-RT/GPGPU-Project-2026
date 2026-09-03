@@ -1,43 +1,36 @@
-### GPGPU Workshop - 3DUPB
-*Mihnea Mitrache, mihnea.mitrache@upb.ro*
+#### Implementation Details
+The physics engine was implemented on both CPU and GPU following these steps:
 
-In this repository you will find the base code for the GPGPU Workshop Project held at 3DUPB, Faculty of Automatic Control and Computer Science, University Politehnica of Bucharest.
+**1. Kinematics and Basic Forces (`physics_object.cpp`)**
+*   `ApplyForce`: Added the applied force to the acceleration (`F/m`).
+*   `ApplyImpulse`: Modified the velocity based on the impulse.
+*   `Integrate`: Updated the velocity and position, then reset the acceleration to zero.
 
-#### Structure
-This repository follows the structure of the [3D UPB-GFX framework](https://github.com/UPB-Graphics/gfx-framework)
-In order to visually inspect the results, we need a graphics context. The framework provides a simple OpenGL context, and a set of classes to manage the window, the camera, and the input events.
+**2. Global Forces (`physics_engine.cpp`)**
+*   `ApplyGravity`: Iterated through objects and applied gravity.
 
-I added CUDA support to the framework, so you can use it to run your GPGPU code and visualize the results. Watch the CMAKELists.txt file to see where CUDA is enabled, and set your CUDA architecture according to your GPU.
-```cmake
-# TODO: Set your CUDA architecture here. Check https://developer.nvidia.com/cuda-gpus for a list of supported architectures.
-# If you list more than one architecture, CMake will build multiple versions of the CUDA code, which will increase build time and binary size.
-if (NOT CMAKE_CUDA_ARCHITECTURES)
-    set(CMAKE_CUDA_ARCHITECTURES 120)
-endif()
+**3. Bounding Volumes (AABB)**
+*   `UpdateBoundingVolume` (`physics_object.cpp`): Synchronized the volume's center with the object's new position.
+*   `Intersects` (`collision.h`): Implemented the AABB vs AABB intersection test on all 3 axes.
 
-# Set the name of the project
-set(target_name GFXFramework)
-project(${target_name} C CXX CUDA)
+**4. Collision Detection: Broad Phase (`physics_engine.cpp`)**
+*   `BroadPhase`: Updated bounding volumes and called potential collision pairs.
+*   `GetPotentialCollisionPairs`: Implemented the Sweep and Prune algorithm (sorted objects on the X-axis for optimization and verified intersections).
 
-```
+**5. Collision Detection: Narrow Phase (`physics_engine.cpp`)**
+*   `ComputeBoxBoxCollision`: Calculated the exact minimum penetration axis and collision normal.
+*   `DetectCollision`: Extracted object references and got intersection info.
+*   `NarrowPhase`: Iterated through Broad Phase pairs and sent the intersecting ones for resolution.
 
-#### Task
-You will simulate physics for a bunch of boxes in a 3D space. See the last session slides for a thorough description of the task. The main idea is to use CUDA to compute the physics simulation on the GPU, and then visualize the results using OpenGL.
-You must implement first on CPU and then on GPU. The app should also be able to switch between CPU and GPU implementations at runtime.
-You can watch a demo video of the final result [here](https://www.youtube.com/watch?v=EUYCXjW3RTA). The second part is after pressing the 'G' key, which toggles the simulation between CPU and GPU implementations. You can observe how laggy the CPU implementation is, and how smooth the GPU implementation is.
+**6. Collision Resolution (`physics_engine.cpp`)**
+*   `ResolveCollision`:
+    *   **Positional correction:** Separated objects based on mass ratio to prevent sinking.
+    *   **Normal impulse:** Calculated relative velocity along the normal and applied the restitution impulse.
+    *   **Friction impulse:** Calculated and applied friction along the tangent of impact.
 
-#### Setting up the project
-1. Clone the repository
-2. Set up the project using CMake. You can use the following commands:
-```bash
-mkdir build
-cmake -B build .
-```
-3. Modify the files and implement the physics simulation on CPU and GPU. You can find the files in the `src` folder. I modularized the code into several files, so you can focus on the parts that are relevant to your task.
-4. Build the project using CMake:
-```bash
-cmake --build build --config Release
-```
-The above uses the command line for building the project, but you can also use the graphical interface. If not remembering, look at [UPB GFX configuration guide](https://ocw.cs.pub.ro/courses/pgapi/setup-framework) for more details.
+**7. GPU Parallelization - CUDA (`physics_gpu_cuda.cu`)**
+*   `DetectCollisions` (Host): Allocated memory on the device (`cudaMalloc`), transferred bounding volume data from Host to Device, launched the collision kernel and transferred results (collision count and array) back to Host.
+*   `Collisions` (GPU Kernel): Mathematically computed intersections and normals in parallel on grids/blocks, using `atomicAdd` for concurrent writing of valid `CollisionInfo` to the results array.
 
-**Good luck with your implementation! If you have any questions, feel free to ask on Teams :)**
+**Performance Note:** 
+By pressing the 'G' key during the simulation, you can toggle between the CPU and GPU implementations. The performance difference is highly noticeable in the framerate, demonstrating the massive speedup achieved through GPU parallelization.
