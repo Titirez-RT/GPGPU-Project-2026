@@ -19,14 +19,18 @@ namespace physics {
 	class GPUCollisionDetector {
 	public:
 		GPUCollisionDetector() = default;
-		~GPUCollisionDetector() = default;
+		~GPUCollisionDetector();
 
-		bool Initialize() { return false; }
+		bool Initialize();
 
-		std::vector<CollisionInfo> DetectCollisions(const std::vector<PhysicsObject>& objects) { return {}; } // TODO: implement in physics_gpu_cuda.cu
+		std::vector<CollisionInfo> DetectCollisions(const std::vector<PhysicsObject>& objects); // TODO: implement in physics_gpu_cuda.cu
 
 	private:
 		bool m_initialized{ false };
+		int m_currentCapacity{ 0 };
+		bounding_volume_t* deviceVolumes{ nullptr };
+		CollisionInfo* deviceCollisionResult{ nullptr };
+		int* destCounter{ nullptr };
 	};
 
 } // namespace physics

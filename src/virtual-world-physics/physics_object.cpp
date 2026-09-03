@@ -10,18 +10,39 @@ glm::mat4 PhysicsObject::GetModelMatrix() const {
 }
 
 void PhysicsObject::UpdateBoundingVolume() {
-  // TODO
+	// TODO
+
+	// update the position for the center
+	boundingVolume.center = position;
 }
 
 void PhysicsObject::ApplyForce(const glm::vec3 &force) {
-  // TODO
+	// TODO
+	if (isStatic)
+		return;
+
+	// add new acceleration to the current one
+	acceleration += force / mass;
 }
 
 void PhysicsObject::ApplyImpulse(const glm::vec3 &impulse) {
-  // TODO
+	// TODO
+	if (isStatic)
+		return;
+
+	velocity += impulse / mass;
 }
 
 void PhysicsObject::Integrate(float deltaTime) {
-  // TODO
+	// TODO
+
+	// modify the speed
+	velocity += (acceleration * deltaTime);
+
+	// calculate the new position
+	position += (velocity * deltaTime);
+
+	// reset the acceleration
+	acceleration = glm::vec3(0.0f);
 }
 } // namespace physics

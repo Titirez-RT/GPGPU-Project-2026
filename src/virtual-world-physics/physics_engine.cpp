@@ -25,6 +25,7 @@ void PhysicsEngine::Update(float deltaTime) {
     ApplyGravity(m_fixedDeltaTime);
     for (auto &object : m_objects) {
       object.Integrate(m_fixedDeltaTime);
+      object.UpdateBoundingVolume();
     }
     if (m_useGPU && m_gpuDetector) {
       try {
@@ -60,40 +61,205 @@ void PhysicsEngine::Update(float deltaTime) {
 }
 
 void PhysicsEngine::ApplyGravity(float deltaTime) {
-  // TODO
+    // TODO
+
+    // apply gravity to each object
+    for (PhysicsObject& object: m_objects) {
+        object.ApplyForce(object.mass * m_gravity);
+    }
 }
 
 void PhysicsEngine::BroadPhase() {  
-  // TODO
+    // TODO
+
+    // the position modified after Integrate function
+    for (PhysicsObject& object : m_objects) {
+        object.UpdateBoundingVolume();
+    }
+
+    collisionPairs = PhysicsEngine::GetPotentialCollisionPairs();
 }
 
 
 std::vector<std::pair<size_t, size_t>>
 PhysicsEngine::GetPotentialCollisionPairs() {
-  // TODO
-  return {};
+    // TODO
+
+    std::vector<size_t> indices;
+
+    for (int i = 0; i < m_objects.size(); i++)
+        indices.push_back(i);
+
+    // sort by X
+    std::sort(indices.begin(), indices.end(), [this](size_t first, size_t second) {
+        const auto& boxA = m_objects[first].boundingVolume;
+        const auto& boxB = m_objects[second].boundingVolume;
+
+        return (boxA.center.x - boxA.sizes.x) < (boxB.center.x - boxB.sizes.x);
+    });
+
+    std::vector<std::pair<size_t, size_t>> pairs;
+
+    for (int i = 0; i < indices.size() - 1; i++) {
+        for (int j = i + 1; j < indices.size(); j++) {
+            const auto& boxA = m_objects[indices[i]].boundingVolume;
+            const auto& boxB = m_objects[indices[j]].boundingVolume;
+            
+            // maxA comparison with minB on X axis
+            if (boxA.center.x + boxA.sizes.x < boxB.center.x - boxB.sizes.x)
+                break;
+
+            // verify if they intersect
+            if (Intersects(boxA, boxB)) {
+                pairs.push_back({ indices[i], indices[j] });
+            }
+        }
+    }
+
+    return pairs;
 }
 
 void PhysicsEngine::NarrowPhase() {
-  // TODO
+    // TODO
+
+    // verify each pair
+    for (const auto& collisionPair: collisionPairs) {
+        CollisionInfo info = DetectCollision(collisionPair.first, collisionPair.second);
+
+        if (glm::length(info.normal) > 0.0f) {
+            m_stats.detectedCollisions++;
+            ResolveCollision(collisionPair.first, collisionPair.second, info);
+        }
+    }
 }
 
 CollisionInfo PhysicsEngine::DetectCollision(size_t indexA, size_t indexB) {
-  // TODO
-  return CollisionInfo{};
+    // TODO
+    
+    const auto& boxA = m_objects[indexA].boundingVolume;
+    const auto& boxB = m_objects[indexB].boundingVolume;
+
+    return ComputeBoxBoxCollision(indexA, indexB, boxA, boxB);
 }
 
 CollisionInfo
 PhysicsEngine::ComputeBoxBoxCollision(size_t indexA, size_t indexB,
                                       const bounding_volume_t &boxA,
                                       const bounding_volume_t &boxB) {
-  // TODO
-  return CollisionInfo{};
+    // TODO
+
+    CollisionInfo info;
+    info.indexA = indexA;
+    info.indexB = indexB;
+
+    glm::vec3 distance = boxB.center - boxA.center;
+    glm::vec3 absDistance = glm::abs(distance);
+    glm::vec3 sizes = boxA.sizes + boxB.sizes;
+
+    glm::vec3 intersection = absDistance - sizes;
+
+    // they intersect
+    if (intersection.x <= 0 && intersection.y <= 0 && intersection.z <= 0) {
+        // the shortest path to separate the two object
+        if (intersection.x >= intersection.y && intersection.x >= intersection.z) {
+            info.normal = glm::vec3(distance.x > 0 ? 1.0f : -1.0f, 0.0f, 0.0f);
+            info.penetration = -intersection.x;
+        }
+        else if (intersection.y >= intersection.z) {
+            info.normal = glm::vec3(0.0f, distance.y > 0 ? 1.0f : -1.0f, 0.0f);
+            info.penetration = -intersection.y;
+        }
+        else {
+            info.normal = glm::vec3(0.0f, 0.0f, distance.z > 0 ? 1.0f : -1.0f);
+            info.penetration = -intersection.z;
+        }
+    }
+
+    return info;
 }
 
 void PhysicsEngine::ResolveCollision(size_t indexA, size_t indexB,
                                      const CollisionInfo &collision) {
-  // TODO
+    // TODO
+
+    auto& objectA = m_objects[indexA];
+    auto& objectB = m_objects[indexB];
+
+    if (objectA.isStatic && objectB.isStatic)
+        return;
+
+    float totalMass = objectA.mass + objectB.mass;
+
+    float ratioA = 0.0f;
+    float ratioB = 0.0f;
+   
+    // depends on each mass
+    if (objectA.isStatic && !objectB.isStatic) {
+        ratioA = 0.0f;
+        ratioB = 1.0f;
+    }
+    else if (!objectA.isStatic && objectB.isStatic) {
+        ratioA = 1.0f;
+        ratioB = 0.0f;
+    }
+    else if (!objectA.isStatic && !objectB.isStatic) {
+        float totalMass = objectA.mass + objectB.mass;
+        ratioA = objectB.mass / totalMass;
+        ratioB = objectA.mass / totalMass;
+    }
+
+    glm::vec3 correction = collision.penetration * collision.normal;
+
+    if (!objectA.isStatic) objectA.position -= correction * ratioA;
+    if (!objectB.isStatic) objectB.position += correction * ratioB;
+
+    // application of impulse via relative velocity
+    glm::vec3 relVelocity = objectB.velocity - objectA.velocity;
+    float velocityNormal = glm::dot(relVelocity, collision.normal);
+
+    if (velocityNormal > 0)
+        return;
+
+    float effectiveMass;
+    
+    if (objectA.isStatic)
+        effectiveMass = objectB.mass;
+    else if (objectB.isStatic)
+        effectiveMass = objectA.mass;
+    else
+        effectiveMass = (objectA.mass * objectB.mass) / totalMass;
+
+    // normal impulse / min elasticity
+    float e = std::min(objectA.restitution, objectB.restitution);
+    if (std::abs(velocityNormal) < 0.2f) {
+        e = 0.0f;
+    }
+
+    // magnitude of the frontal impact
+    float mag = -(1.0f + e) * velocityNormal * effectiveMass;
+    glm::vec3 normalImpulse = mag * collision.normal;
+
+    if (!objectA.isStatic) objectA.ApplyImpulse(-normalImpulse);
+    if (!objectB.isStatic) objectB.ApplyImpulse(normalImpulse);
+
+    glm::vec3 tangent = relVelocity - (velocityNormal * collision.normal);
+
+    if (glm::length(tangent) > 0.000001f) {
+        tangent = glm::normalize(tangent);
+
+        float magt = -glm::dot(relVelocity, tangent) * effectiveMass;
+        float mu = (objectA.friction + objectB.friction) / 2.0f;
+
+        glm::vec3 frictionImpulse;
+
+        if (std::abs(magt) < mag * mu)
+            frictionImpulse = magt * tangent;
+        else
+            frictionImpulse = -mag * mu * tangent;
+
+        if (!objectA.isStatic) objectA.ApplyImpulse(-frictionImpulse);
+        if (!objectB.isStatic) objectB.ApplyImpulse(frictionImpulse);
+    }
 }
 
 void PhysicsEngine::Init(const glm::vec3 &gravity, bool useGpu) {
