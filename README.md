@@ -37,4 +37,4 @@ The physics engine was implemented on both CPU and GPU following these steps:
 **Performance Note:** 
 By pressing the 'G' key during the simulation, you can toggle between the CPU and GPU implementations. The performance difference is highly noticeable in the framerate, demonstrating the massive speedup achieved through GPU parallelization.
 
-The link to the demo is: [YouTube Demo](https://www.youtube.com/watch?v=YOUR_LINK)
+The link to the demo is: [YouTube Demo](https://www.youtube.com/watch?v=zSCgX1RSho0)
